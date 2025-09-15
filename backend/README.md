@@ -1,55 +1,68 @@
-## Village Complaint Backend (Express + MySQL)
+# Village Complaint Resolution System - Backend
 
-Simple REST API for the Village Complaint Resolution system.
+A simple Node.js backend for managing village complaints.
 
-### Prerequisites
-- Node.js 18+
-- MySQL 8+ (or compatible)
+## Features
 
-### Setup
-1. Create a `.env` file in this directory with:
+- User registration and login (villagers and officers)
+- Complaint management (create, view, update status)
+- Department and village management
+- Simple authentication system
 
-```
-PORT=4000
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=
-DB_NAME=village_db
-```
+## Setup
 
-2. Install dependencies:
-
-```
+1. Install dependencies:
+```bash
 npm install
 ```
 
-3. Start the API (dev):
+2. Set up MySQL database with the provided SQL schema
 
+3. Create data directory:
+```bash
+mkdir data
 ```
+
+4. Start the server:
+```bash
 npm run dev
 ```
 
-### Routes
-- GET `/api/health` – server and DB check
+## API Endpoints
 
-Persons:
-- GET `/api/persons?limit=20&offset=0`
-- GET `/api/persons/:id`
-- POST `/api/persons`
-- PUT `/api/persons/:id`
-- DELETE `/api/persons/:id`
+### Authentication
+- `POST /api/auth/login` - Villager login (phone + name)
+- `POST /api/auth/register` - Villager registration
+- `POST /api/auth/officer/login` - Officer login (email + password)
 
-Complaints:
-- GET `/api/complaints?limit=20&offset=0`
-- GET `/api/complaints/:id`
-- POST `/api/complaints`
-- PUT `/api/complaints/:id`
-- DELETE `/api/complaints/:id`
+### Complaints
+- `GET /api/complaints` - Get all complaints
+- `POST /api/complaints` - Create complaint
+- `GET /api/complaints/:id` - Get complaint by ID
+- `PUT /api/complaints/:id/status` - Update complaint status
 
-### Notes
-- This backend assumes your tables are already created (e.g. `Person`, `Complaint`).
-- Queries use parameterized statements via `mysql2/promise`.
-- CORS is enabled for all origins by default.
+### Departments
+- `GET /api/departments` - Get all departments
+- `POST /api/departments` - Create department
 
+### Villages
+- `GET /api/villages` - Get all villages
+- `POST /api/villages` - Create village
 
+### Persons
+- `GET /api/persons` - Get all persons
+- `POST /api/persons` - Create person
+
+## Sample Officer Login
+
+- Email: `anil@up.gov.in`
+- Password: `password123`
+
+## Database
+
+Uses MySQL with the following main tables:
+- Person (villagers)
+- Complaint (complaints)
+- Department (departments)
+- Village (villages)
+- AssigningOfficer (officers)

@@ -1,74 +1,71 @@
 import { Router } from 'express';
 import { db } from '../index.js';
+import { validatePerson } from '../middleware/validation.js';
 
 export const personsRouter = Router();
 
-// List persons (basic pagination)
+// Get all persons
 personsRouter.get('/', async (req, res) => {
-  const limit = Math.min(parseInt(req.query.limit || '20', 10), 100);
-  const offset = parseInt(req.query.offset || '0', 10);
   try {
-    const [rows] = await db.query(
-      'SELECT PersonID, FirstName, MiddleName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation FROM Person ORDER BY PersonID DESC LIMIT ? OFFSET ?',
-      [limit, offset]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const [persons] = await db.query(`
+      SELECT p.*, v.VillageName
+      FROM Person p
+      LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
+      ORDER BY p.PersonID DESC
+    `);
+    res.json(persons);
+  } catch (error) {
+    console.error('Error fetching persons:', error);
+    res.status(500).json({ error: 'Failed to fetch persons' });
   }
 });
 
-// Get person by id
+// Get person by ID
 personsRouter.get('/:id', async (req, res) => {
+  const { id } = req.params;
+  
   try {
-    const [rows] = await db.query('SELECT * FROM Person WHERE PersonID = ?', [req.params.id]);
-    if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    const [persons] = await db.query(`
+      SELECT p.*, v.VillageName
+      FROM Person p
+      LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
+      WHERE p.PersonID = ?
+    `, [id]);
+    
+    if (persons.length === 0) {
+      return res.status(404).json({ error: 'Person not found' });
+    }
+    
+    res.json(persons[0]);
+  } catch (error) {
+    console.error('Error fetching person:', error);
+    res.status(500).json({ error: 'Failed to fetch person' });
   }
 });
 
-// Create person (minimal fields)
-personsRouter.post('/', async (req, res) => {
-  const { FirstName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber, MiddleName } = req.body || {};
-  if (!FirstName || !LastName) return res.status(400).json({ error: 'FirstName and LastName are required' });
+// Create person
+personsRouter.post('/', validatePerson, async (req, res) => {
+  const { FirstName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber } = req.body;
+  
   try {
-    const [result] = await db.query(
-      'INSERT INTO Person (FirstName, MiddleName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [FirstName, MiddleName || null, LastName, PhoneNumber || null, Gender || null, DateOfBirth || null, Address || null, CensusVillageCode || null, Occupation || null, AadhaarNumber || null]
-    );
-    const [rows] = await db.query('SELECT * FROM Person WHERE PersonID = ?', [result.insertId]);
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    // Check if person already exists
+    const [existing] = await db.query('SELECT PersonID FROM Person WHERE PhoneNumber = ?', [PhoneNumber]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'Person already exists with this phone number' });
+    }
+    
+    const [result] = await db.query(`
+      INSERT INTO Person (FirstName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [FirstName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber]);
+    
+    res.json({ 
+      success: true, 
+      message: 'Person created successfully',
+      personId: result.insertId 
+    });
+  } catch (error) {
+    console.error('Error creating person:', error);
+    res.status(500).json({ error: 'Failed to create person' });
   }
 });
-
-// Update person
-personsRouter.put('/:id', async (req, res) => {
-  const { FirstName, MiddleName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber } = req.body || {};
-  try {
-    await db.query(
-      'UPDATE Person SET FirstName=?, MiddleName=?, LastName=?, PhoneNumber=?, Gender=?, DateOfBirth=?, Address=?, CensusVillageCode=?, Occupation=?, AadhaarNumber=? WHERE PersonID=?',
-      [FirstName || null, MiddleName || null, LastName || null, PhoneNumber || null, Gender || null, DateOfBirth || null, Address || null, CensusVillageCode || null, Occupation || null, AadhaarNumber || null, req.params.id]
-    );
-    const [rows] = await db.query('SELECT * FROM Person WHERE PersonID = ?', [req.params.id]);
-    if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Delete person
-personsRouter.delete('/:id', async (req, res) => {
-  try {
-    await db.query('DELETE FROM Person WHERE PersonID = ?', [req.params.id]);
-    res.status(204).send();
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-

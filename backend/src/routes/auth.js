@@ -1,278 +1,228 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import { db } from '../index.js';
-import { validatePerson } from '../middleware/validation.js';
 
 export const authRouter = Router();
 
-// Login with phone number and name
+// Villager login 
 authRouter.post('/login', async (req, res) => {
   const { phoneNumber, firstName, lastName } = req.body;
   
   if (!phoneNumber || !firstName || !lastName) {
-    return res.status(400).json({ 
-      error: 'Phone number, first name, and last name are required' 
-    });
-  }
-  
-  // Validate phone number format
-  if (!/^[6-9]\d{9}$/.test(phoneNumber)) {
-    return res.status(400).json({ 
-      error: 'Phone number must be a valid 10-digit Indian mobile number' 
-    });
+    return res.status(400).json({ error: 'All fields required' });
   }
   
   try {
-    // Find person by phone number and name
+    
+    const trimmedFirstName = firstName.trim();
+    const trimmedLastName = lastName.trim();
+    
     const [persons] = await db.query(`
-      SELECT p.*, v.VillageName, v.District, v.Block, v.State
+      SELECT p.*, v.VillageName
       FROM Person p
       LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
-      WHERE p.PhoneNumber = ? AND p.FirstName = ? AND p.LastName = ?
-    `, [phoneNumber, firstName, lastName]);
+      WHERE p.PhoneNumber = ? AND TRIM(p.FirstName) = ? AND TRIM(p.LastName) = ?
+    `, [phoneNumber, trimmedFirstName, trimmedLastName]);
     
-    if (persons.length === 0) {
-      return res.status(401).json({ 
-        error: 'Invalid credentials. Please check your phone number and name.' 
-      });
-    }
-    
-    const person = persons[0];
-    
-    // Check if person is an officer
+    // Check if officer first (match by phone number and name, then verify password)
     const [assigningOfficer] = await db.query(`
       SELECT ao.*, d.DepartmentName
       FROM AssigningOfficer ao
       LEFT JOIN Department d ON ao.DepartmentID = d.DepartmentID
-      WHERE ao.PersonID = ?
-    `, [person.PersonID]);
+      WHERE ao.PhoneNumber = ? AND TRIM(ao.FirstName) = ? AND TRIM(ao.LastName) = ?
+    `, [phoneNumber, trimmedFirstName, trimmedLastName]);
     
     const [resolvingOfficer] = await db.query(`
       SELECT ro.*, d.DepartmentName
       FROM ResolvingOfficer ro
       LEFT JOIN Department d ON ro.DepartmentID = d.DepartmentID
-      WHERE ro.PersonID = ?
-    `, [person.PersonID]);
+      WHERE ro.PhoneNumber = ? AND TRIM(ro.FirstName) = ? AND TRIM(ro.LastName) = ?
+    `, [phoneNumber, trimmedFirstName, trimmedLastName]);
     
-    // Determine user role
-    let role = 'villager';
-    let department = null;
-    
+    // If officer found, verify password and return officer data
     if (assigningOfficer.length > 0) {
-      role = 'assigning_officer';
-      department = assigningOfficer[0].DepartmentName;
-    } else if (resolvingOfficer.length > 0) {
-      role = 'resolution_officer';
-      department = resolvingOfficer[0].DepartmentName;
+      const officer = assigningOfficer[0];
+      const isPasswordValid = await bcrypt.compare(password, officer.Password);
+      
+      if (isPasswordValid) {
+        const user = {
+          id: officer.AssigningOfficerID.toString(),
+          name: `${officer.FirstName} ${officer.LastName}`,
+          phoneNumber: officer.PhoneNumber,
+          email: officer.Email,
+          role: 'assigning_officer',
+          department: officer.DepartmentName,
+          designation: officer.Designation
+        };
+        return res.json({ success: true, user });
+      } else {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
     }
     
-    // Create user object
+    if (resolvingOfficer.length > 0) {
+      const officer = resolvingOfficer[0];
+      const isPasswordValid = await bcrypt.compare(password, officer.Password);
+      
+      if (isPasswordValid) {
+        const user = {
+          id: officer.ResolvingOfficerID.toString(),
+          name: `${officer.FirstName} ${officer.LastName}`,
+          phoneNumber: officer.PhoneNumber,
+          email: officer.Email,
+          role: 'resolving_officer',
+          department: officer.DepartmentName,
+          designation: officer.Designation
+        };
+        return res.json({ success: true, user });
+      } else {
+        return res.status(401).json({ error: 'Invalid credentials' });
+      }
+    }
+    
+    // If not an officer, check if person exists
+    if (persons.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const person = persons[0];
+    
+    // Person (villager) login
     const user = {
       id: person.PersonID.toString(),
       name: `${person.FirstName} ${person.LastName}`,
       phoneNumber: person.PhoneNumber,
-      role: role,
       village: person.VillageName,
-      district: person.District,
-      block: person.Block,
-      department: department,
-      personId: person.PersonID,
-      address: person.Address,
-      occupation: person.Occupation,
-      aadharNumber: person.AadhaarNumber
+      role: 'villager'
     };
     
-    res.json({
-      success: true,
-      message: 'Login successful',
-      user: user
-    });
+    res.json({ success: true, user });
     
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
-      error: 'Login failed. Please try again.' 
-    });
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
-// Register new person (villager)
-authRouter.post('/register', validatePerson, async (req, res) => {
-  const { 
-    FirstName, 
-    LastName, 
-    PhoneNumber, 
-    Gender, 
-    DateOfBirth, 
-    Address, 
-    CensusVillageCode, 
-    Occupation, 
-    AadhaarNumber, 
-    MiddleName 
-  } = req.body;
+// Villager registration
+authRouter.post('/register', async (req, res) => {
+  const { FirstName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber } = req.body;
+  
+  if (!FirstName || !LastName || !PhoneNumber || !Gender || !DateOfBirth || !Address || !CensusVillageCode || !Occupation || !AadhaarNumber) {
+    return res.status(400).json({ error: 'All fields required' });
+  }
   
   try {
-    // Check if person already exists
-    const [existingPerson] = await db.query(
-      'SELECT PersonID FROM Person WHERE PhoneNumber = ?',
-      [PhoneNumber]
-    );
-    
-    if (existingPerson.length > 0) {
-      return res.status(409).json({ 
-        error: 'Person with this phone number already exists' 
-      });
+    // Check if user already exists
+    const [existing] = await db.query('SELECT PersonID FROM Person WHERE PhoneNumber = ?', [PhoneNumber]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: 'User already exists' });
     }
     
-    // Create new person
-    const [result] = await db.query(
-      'INSERT INTO Person (FirstName, MiddleName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [FirstName, MiddleName || null, LastName, PhoneNumber, Gender || null, DateOfBirth || null, Address || null, CensusVillageCode || null, Occupation || null, AadhaarNumber || null]
-    );
+    // Insert new person
+    const [result] = await db.query(`
+      INSERT INTO Person (FirstName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [FirstName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadhaarNumber]);
     
-    // Get village information
-    const [village] = await db.query(`
-      SELECT VillageName, District, Block, State
-      FROM Village 
-      WHERE CensusVillageCode = ?
-    `, [CensusVillageCode]);
-    
-    const user = {
-      id: result.insertId.toString(),
-      name: `${FirstName} ${LastName}`,
-      phoneNumber: PhoneNumber,
-      role: 'villager',
-      village: village[0]?.VillageName || null,
-      district: village[0]?.District || null,
-      block: village[0]?.Block || null,
-      personId: result.insertId,
-      address: Address,
-      occupation: Occupation,
-      aadharNumber: AadhaarNumber
-    };
-    
-    res.status(201).json({
-      success: true,
+    res.json({ 
+      success: true, 
       message: 'Registration successful',
-      user: user
+      personId: result.insertId 
     });
     
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ 
-      error: 'Registration failed. Please try again.' 
-    });
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
 
-// Get user profile
-authRouter.get('/profile/:personId', async (req, res) => {
+// Officer login (phone + name + password)
+authRouter.post('/officer/login', async (req, res) => {
+  const { phoneNumber, firstName, lastName, password } = req.body;
+  
+  if (!phoneNumber || !firstName || !lastName || !password) {
+    return res.status(400).json({ error: 'Phone number, name, and password required' });
+  }
+  
   try {
-    const [persons] = await db.query(`
-      SELECT p.*, v.VillageName, v.District, v.Block, v.State
-      FROM Person p
-      LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
-      WHERE p.PersonID = ?
-    `, [req.params.personId]);
+    const trimmedFirstName = firstName.trim();
+    const trimmedLastName = lastName.trim();
     
-    if (persons.length === 0) {
-      return res.status(404).json({ error: 'Person not found' });
-    }
-    
-    const person = persons[0];
-    
-    // Check officer status
-    const [assigningOfficer] = await db.query(`
+    // Check AssigningOfficer first
+    const [assigningOfficers] = await db.query(`
       SELECT ao.*, d.DepartmentName
       FROM AssigningOfficer ao
       LEFT JOIN Department d ON ao.DepartmentID = d.DepartmentID
-      WHERE ao.PersonID = ?
-    `, [person.PersonID]);
+      WHERE ao.PhoneNumber = ? AND TRIM(ao.FirstName) = ? AND TRIM(ao.LastName) = ? AND ao.IsActive = 1
+    `, [phoneNumber, trimmedFirstName, trimmedLastName]);
     
-    const [resolvingOfficer] = await db.query(`
+    // Check ResolvingOfficer
+    const [resolvingOfficers] = await db.query(`
       SELECT ro.*, d.DepartmentName
       FROM ResolvingOfficer ro
       LEFT JOIN Department d ON ro.DepartmentID = d.DepartmentID
-      WHERE ro.PersonID = ?
-    `, [person.PersonID]);
+      WHERE ro.PhoneNumber = ? AND TRIM(ro.FirstName) = ? AND TRIM(ro.LastName) = ? AND ro.IsActive = 1
+    `, [phoneNumber, trimmedFirstName, trimmedLastName]);
     
-    let role = 'villager';
-    let department = null;
-    
-    if (assigningOfficer.length > 0) {
-      role = 'assigning_officer';
-      department = assigningOfficer[0].DepartmentName;
-    } else if (resolvingOfficer.length > 0) {
-      role = 'resolution_officer';
-      department = resolvingOfficer[0].DepartmentName;
+    // Check AssigningOfficer
+    if (assigningOfficers.length > 0) {
+      const officer = assigningOfficers[0];
+      const isPasswordValid = await bcrypt.compare(password, officer.Password);
+      
+      if (isPasswordValid) {
+        const user = {
+          id: officer.AssigningOfficerID.toString(),
+          name: `${officer.FirstName} ${officer.LastName}`,
+          phoneNumber: officer.PhoneNumber,
+          email: officer.Email,
+          role: 'assigning_officer',
+          department: officer.DepartmentName,
+          designation: officer.Designation
+        };
+        return res.json({ success: true, user });
+      }
     }
     
-    const user = {
-      id: person.PersonID.toString(),
-      name: `${person.FirstName} ${person.LastName}`,
-      phoneNumber: person.PhoneNumber,
-      role: role,
-      village: person.VillageName,
-      district: person.District,
-      block: person.Block,
-      department: department,
-      personId: person.PersonID,
-      address: person.Address,
-      occupation: person.Occupation,
-      aadharNumber: person.AadharNumber
-    };
+    // Check ResolvingOfficer
+    if (resolvingOfficers.length > 0) {
+      const officer = resolvingOfficers[0];
+      const isPasswordValid = await bcrypt.compare(password, officer.Password);
+      
+      if (isPasswordValid) {
+        const user = {
+          id: officer.ResolvingOfficerID.toString(),
+          name: `${officer.FirstName} ${officer.LastName}`,
+          phoneNumber: officer.PhoneNumber,
+          email: officer.Email,
+          role: 'resolving_officer',
+          department: officer.DepartmentName,
+          designation: officer.Designation
+        };
+        return res.json({ success: true, user });
+      }
+    }
     
-    res.json({ user });
-    
+    return res.status(401).json({ error: 'Invalid credentials' });
   } catch (error) {
-    console.error('Profile error:', error);
-    res.status(500).json({ error: 'Failed to fetch profile' });
+    console.error('Officer login error:', error);
+    res.status(500).json({ error: 'Login failed' });
   }
 });
 
-// Update user profile
-authRouter.put('/profile/:personId', async (req, res) => {
-  const { 
-    FirstName, 
-    LastName, 
-    PhoneNumber, 
-    Gender, 
-    DateOfBirth, 
-    Address, 
-    CensusVillageCode, 
-    Occupation, 
-    AadharNumber, 
-    MiddleName 
-  } = req.body;
-  
+// Get all persons
+authRouter.get('/persons', async (req, res) => {
   try {
-    await db.query(
-      'UPDATE Person SET FirstName=?, MiddleName=?, LastName=?, PhoneNumber=?, Gender=?, DateOfBirth=?, Address=?, CensusVillageCode=?, Occupation=?, AadharNumber=? WHERE PersonID=?',
-      [FirstName, MiddleName, LastName, PhoneNumber, Gender, DateOfBirth, Address, CensusVillageCode, Occupation, AadharNumber, req.params.personId]
-    );
+    const [persons] = await db.query(`
+      SELECT p.*, v.VillageName
+      FROM Person p
+      LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
+      ORDER BY p.PersonID DESC
+    `);
     
-    res.json({ message: 'Profile updated successfully' });
-    
+    res.json(persons);
   } catch (error) {
-    console.error('Profile update error:', error);
-    res.status(500).json({ error: 'Failed to update profile' });
-  }
-});
-
-// Check if phone number exists
-authRouter.get('/check-phone/:phoneNumber', async (req, res) => {
-  try {
-    const [persons] = await db.query(
-      'SELECT PersonID, FirstName, LastName FROM Person WHERE PhoneNumber = ?',
-      [req.params.phoneNumber]
-    );
-    
-    res.json({ 
-      exists: persons.length > 0,
-      person: persons[0] || null
-    });
-    
-  } catch (error) {
-    console.error('Phone check error:', error);
-    res.status(500).json({ error: 'Failed to check phone number' });
+    console.error('Error fetching persons:', error);
+    res.status(500).json({ error: 'Failed to fetch persons' });
   }
 });

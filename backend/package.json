@@ -1,17 +1,14 @@
 {
   "name": "village-complaint-backend",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.0.0",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "dev": "nodemon src/index.js",
-    "start": "node src/index.js",
-    "lint": "echo 'No linter configured for backend'",
-    "test": "echo 'No tests configured'",
-    "docs": "echo 'API documentation available in API_DOCUMENTATION.md'"
+    "start": "node src/index.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
@@ -21,4 +18,3 @@
     "nodemon": "^3.1.4"
   }
 }
-

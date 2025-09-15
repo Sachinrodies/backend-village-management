@@ -1,399 +1,160 @@
 import { db } from '../index.js';
 
 export class ComplaintController {
-  // Get complaint workflow status
-  static async getWorkflowStatus(complaintId) {
+  // Get all complaints
+  static async getAllComplaints(req, res) {
     try {
-      const [complaint] = await db.query(`
-        SELECT c.*, 
-               p.FirstName, p.LastName, p.PhoneNumber,
-               d.DepartmentName,
-               v.VillageName
-        FROM Complaint c
-        LEFT JOIN Person p ON c.PersonID = p.PersonID
-        LEFT JOIN Department d ON c.DepartmentID = d.DepartmentID
-        LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
-        WHERE c.ComplaintID = ?
-      `, [complaintId]);
-
-      if (complaint.length === 0) {
-        throw new Error('Complaint not found');
-      }
-
-      // Get assignment details
-      const [assignments] = await db.query(`
-        SELECT ca.*, 
-               p1.FirstName as AssigningFirstName, p1.LastName as AssigningLastName,
-               p2.FirstName as ResolvingFirstName, p2.LastName as ResolvingLastName,
-               d.DepartmentName
-        FROM ComplaintAssignment ca
-        LEFT JOIN AssigningOfficer ao ON ca.AssigningOfficerID = ao.AssigningOfficerID
-        LEFT JOIN ResolvingOfficer ro ON ca.ResolvingOfficerID = ro.ResolvingOfficerID
-        LEFT JOIN Person p1 ON ao.PersonID = p1.PersonID
-        LEFT JOIN Person p2 ON ro.PersonID = p2.PersonID
-        LEFT JOIN Department d ON c.DepartmentID = d.DepartmentID
-        WHERE ca.ComplaintID = ?
-        ORDER BY ca.AssignmentTimestamp DESC
-      `, [complaintId]);
-
-      // Get workflow logs
-      const [logs] = await db.query(`
-        SELECT cl.*, p.FirstName, p.LastName
-        FROM ComplaintLog cl
-        LEFT JOIN Person p ON cl.OfficerID = p.PersonID
-        WHERE cl.ComplaintID = ?
-        ORDER BY cl.Timestamp ASC
-      `, [complaintId]);
-
-      return {
-        complaint: complaint[0],
-        assignments,
-        workflowLogs: logs,
-        currentStatus: complaint[0].Status,
-        isAssigned: assignments.length > 0,
-        currentAssignment: assignments[0] || null
-      };
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  // Process complaint through workflow
-  static async processWorkflow(complaintId, action, data) {
-    try {
-      const workflow = await this.getWorkflowStatus(complaintId);
-      const { complaint, currentAssignment } = workflow;
-
-      switch (action) {
-        case 'assign':
-          return await this.assignComplaint(complaintId, data);
-        
-        case 'accept_assignment':
-          return await this.acceptAssignment(complaintId, data);
-        
-        case 'reject_assignment':
-          return await this.rejectAssignment(complaintId, data);
-        
-        case 'start_work':
-          return await this.startWork(complaintId, data);
-        
-        case 'update_progress':
-          return await this.updateProgress(complaintId, data);
-        
-        case 'resolve':
-          return await this.resolveComplaint(complaintId, data);
-        
-        case 'reject':
-          return await this.rejectComplaint(complaintId, data);
-        
-        case 'close':
-          return await this.closeComplaint(complaintId, data);
-        
-        default:
-          throw new Error('Invalid workflow action');
-      }
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  // Assign complaint to officer
-  static async assignComplaint(complaintId, { assigningOfficerId, resolvingOfficerId }) {
-    try {
-      await db.query('START TRANSACTION');
-      
-      // Create assignment
-      const [assignmentResult] = await db.query(
-        'INSERT INTO ComplaintAssignment (ComplaintID, AssigningOfficerID, ResolvingOfficerID, AssignmentTimestamp) VALUES (?, ?, ?, NOW())',
-        [complaintId, assigningOfficerId, resolvingOfficerId]
-      );
-      
-      // Update complaint status
-      await db.query(
-        'UPDATE Complaint SET Status = ? WHERE ComplaintID = ?',
-        ['ASSIGNED', complaintId]
-      );
-      
-      // Log the assignment
-      await db.query(
-        'INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription) VALUES (?, ?, ?, NOW(), ?)',
-        [complaintId, 'ASSIGNED', assigningOfficerId, 'Complaint assigned to officer']
-      );
-      
-      await db.query('COMMIT');
-      
-      return {
-        success: true,
-        message: 'Complaint assigned successfully',
-        assignmentId: assignmentResult.insertId
-      };
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    }
-  }
-
-  // Accept assignment
-  static async acceptAssignment(complaintId, { officerId, notes }) {
-    try {
-      await db.query('START TRANSACTION');
-      
-      // Update complaint status
-      await db.query(
-        'UPDATE Complaint SET Status = ? WHERE ComplaintID = ?',
-        ['IN_PROGRESS', complaintId]
-      );
-      
-      // Log the acceptance
-      await db.query(
-        'INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription) VALUES (?, ?, ?, NOW(), ?)',
-        [complaintId, 'IN_PROGRESS', officerId, `Assignment accepted. ${notes || ''}`]
-      );
-      
-      await db.query('COMMIT');
-      
-      return {
-        success: true,
-        message: 'Assignment accepted successfully'
-      };
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    }
-  }
-
-  // Reject assignment
-  static async rejectAssignment(complaintId, { officerId, notes }) {
-    try {
-      await db.query('START TRANSACTION');
-      
-      // Update complaint status back to NEW
-      await db.query(
-        'UPDATE Complaint SET Status = ? WHERE ComplaintID = ?',
-        ['NEW', complaintId]
-      );
-      
-      // Log the rejection
-      await db.query(
-        'INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription) VALUES (?, ?, ?, NOW(), ?)',
-        [complaintId, 'NEW', officerId, `Assignment rejected. ${notes || ''}`]
-      );
-      
-      await db.query('COMMIT');
-      
-      return {
-        success: true,
-        message: 'Assignment rejected successfully'
-      };
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    }
-  }
-
-  // Start work on complaint
-  static async startWork(complaintId, { officerId, notes }) {
-    try {
-      await db.query('START TRANSACTION');
-      
-      // Update complaint status
-      await db.query(
-        'UPDATE Complaint SET Status = ? WHERE ComplaintID = ?',
-        ['IN_PROGRESS', complaintId]
-      );
-      
-      // Log the start of work
-      await db.query(
-        'INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription) VALUES (?, ?, ?, NOW(), ?)',
-        [complaintId, 'IN_PROGRESS', officerId, `Work started on complaint. ${notes || ''}`]
-      );
-      
-      await db.query('COMMIT');
-      
-      return {
-        success: true,
-        message: 'Work started successfully'
-      };
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    }
-  }
-
-  // Update progress
-  static async updateProgress(complaintId, { officerId, notes }) {
-    try {
-      await db.query('START TRANSACTION');
-      
-      // Log the progress update
-      await db.query(
-        'INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription) VALUES (?, ?, ?, NOW(), ?)',
-        [complaintId, 'IN_PROGRESS', officerId, `Progress update: ${notes}`]
-      );
-      
-      await db.query('COMMIT');
-      
-      return {
-        success: true,
-        message: 'Progress updated successfully'
-      };
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    }
-  }
-
-  // Resolve complaint
-  static async resolveComplaint(complaintId, { officerId, notes, resolutionDetails }) {
-    try {
-      await db.query('START TRANSACTION');
-      
-      // Update complaint status
-      await db.query(
-        'UPDATE Complaint SET Status = ? WHERE ComplaintID = ?',
-        ['RESOLVED', complaintId]
-      );
-      
-      // Log the resolution
-      await db.query(
-        'INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription) VALUES (?, ?, ?, NOW(), ?)',
-        [complaintId, 'RESOLVED', officerId, `Complaint resolved. ${notes || ''} ${resolutionDetails || ''}`]
-      );
-      
-      await db.query('COMMIT');
-      
-      return {
-        success: true,
-        message: 'Complaint resolved successfully'
-      };
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    }
-  }
-
-  // Reject complaint
-  static async rejectComplaint(complaintId, { officerId, notes, rejectionReason }) {
-    try {
-      await db.query('START TRANSACTION');
-      
-      // Update complaint status
-      await db.query(
-        'UPDATE Complaint SET Status = ? WHERE ComplaintID = ?',
-        ['REJECTED', complaintId]
-      );
-      
-      // Log the rejection
-      await db.query(
-        'INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription) VALUES (?, ?, ?, NOW(), ?)',
-        [complaintId, 'REJECTED', officerId, `Complaint rejected. Reason: ${rejectionReason || ''} ${notes || ''}`]
-      );
-      
-      await db.query('COMMIT');
-      
-      return {
-        success: true,
-        message: 'Complaint rejected successfully'
-      };
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    }
-  }
-
-  // Close complaint
-  static async closeComplaint(complaintId, { officerId, notes }) {
-    try {
-      await db.query('START TRANSACTION');
-      
-      // Update complaint status
-      await db.query(
-        'UPDATE Complaint SET Status = ? WHERE ComplaintID = ?',
-        ['CLOSED', complaintId]
-      );
-      
-      // Log the closure
-      await db.query(
-        'INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription) VALUES (?, ?, ?, NOW(), ?)',
-        [complaintId, 'CLOSED', officerId, `Complaint closed. ${notes || ''}`]
-      );
-      
-      await db.query('COMMIT');
-      
-      return {
-        success: true,
-        message: 'Complaint closed successfully'
-      };
-    } catch (error) {
-      await db.query('ROLLBACK');
-      throw error;
-    }
-  }
-
-  // Get dashboard data for different user roles
-  static async getDashboardData(userRole, userId, filters = {}) {
-    try {
-      let baseQuery = `
-        SELECT c.*, 
-               p.FirstName, p.LastName, p.PhoneNumber, p.Email,
-               d.DepartmentName,
-               v.VillageName, v.District, v.Block,
-               ca.AssignmentID, ca.AssignedBy, ca.AssignedTo, ca.AssignmentDate, ca.Status as AssignmentStatus,
-               p1.FirstName as AssignedByFirstName, p1.LastName as AssignedByLastName,
-               p2.FirstName as AssignedToFirstName, p2.LastName as AssignedToLastName
+      const [complaints] = await db.query(`
+        SELECT c.*, p.FirstName, p.LastName, p.PhoneNumber, d.DepartmentName, v.VillageName,
+               ca.AssigningOfficerID, ca.ResolvingOfficerID, ca.AssignmentTimestamp,
+               ao.FirstName as AssigningOfficerName, ao.LastName as AssigningOfficerLastName,
+               ro.FirstName as ResolvingOfficerName, ro.LastName as ResolvingOfficerLastName
         FROM Complaint c
         LEFT JOIN Person p ON c.PersonID = p.PersonID
         LEFT JOIN Department d ON c.DepartmentID = d.DepartmentID
         LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
         LEFT JOIN ComplaintAssignment ca ON c.ComplaintID = ca.ComplaintID
-        LEFT JOIN Person p1 ON ca.AssignedBy = p1.PersonID
-        LEFT JOIN Person p2 ON ca.AssignedTo = p2.PersonID
-        WHERE 1=1
-      `;
+        LEFT JOIN AssigningOfficer ao ON ca.AssigningOfficerID = ao.AssigningOfficerID
+        LEFT JOIN ResolvingOfficer ro ON ca.ResolvingOfficerID = ro.ResolvingOfficerID
+        ORDER BY c.ComplaintID DESC
+      `);
+      
+      res.json(complaints);
+    } catch (error) {
+      console.error('Error fetching complaints:', error);
+      res.status(500).json({ error: 'Failed to fetch complaints' });
+    }
+  }
 
-      const params = [];
-
-      // Apply role-based filtering
-      switch (userRole) {
-        case 'villager':
-          baseQuery += ' AND c.PersonID = ?';
-          params.push(userId);
-          break;
-        
-        case 'resolution_officer':
-          baseQuery += ' AND ca.ResolvingOfficerID = ?';
-          params.push(userId);
-          break;
-        
-        case 'assigning_officer':
-          baseQuery += ' AND ca.AssigningOfficerID = ?';
-          params.push(userId);
-          break;
-        
-        // Location-based filters removed because Village may not have District/Block
-        case 'department_head':
-        case 'block_officer':
-        case 'district_officer':
-          // Fall back to department filter only if needed
-          break;
+  // Get complaint by ID
+  static async getComplaintById(req, res) {
+    const { id } = req.params;
+    
+    try {
+      const [complaints] = await db.query(`
+        SELECT c.*, p.FirstName, p.LastName, p.PhoneNumber, d.DepartmentName, v.VillageName
+        FROM Complaint c
+        LEFT JOIN Person p ON c.PersonID = p.PersonID
+        LEFT JOIN Department d ON c.DepartmentID = d.DepartmentID
+        LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
+        WHERE c.ComplaintID = ?
+      `, [id]);
+      
+      if (complaints.length === 0) {
+        return res.status(404).json({ error: 'Complaint not found' });
       }
+      
+      res.json(complaints[0]);
+    } catch (error) {
+      console.error('Error fetching complaint:', error);
+      res.status(500).json({ error: 'Failed to fetch complaint' });
+    }
+  }
 
-      // Apply additional filters
-      if (filters.status) {
-        baseQuery += ' AND c.Status = ?';
-        params.push(filters.status);
+  // Create new complaint
+  static async createComplaint(req, res) {
+    const { PersonID, Description, PriorityLevel, LocationDescription, DepartmentID } = req.body;
+    
+    try {
+      // Create complaint
+      const [result] = await db.query(`
+        INSERT INTO Complaint (PersonID, Description, PriorityLevel, LocationDescription, Status, Timestamp, DepartmentID)
+        VALUES (?, ?, ?, ?, 'NEW', NOW(), ?)
+      `, [PersonID, Description, PriorityLevel || 'MEDIUM', LocationDescription || '', DepartmentID || 1]);
+      
+      const complaintId = result.insertId;
+      
+      // Auto-assign to officers if department specified
+      if (DepartmentID) {
+        // Find assigning officer for this department
+        const [assigningOfficers] = await db.query(`
+          SELECT AssigningOfficerID FROM AssigningOfficer 
+          WHERE DepartmentID = ? AND IsActive = 1 
+          ORDER BY RAND() LIMIT 1
+        `, [DepartmentID]);
+        
+        // Find resolving officer for this department
+        const [resolvingOfficers] = await db.query(`
+          SELECT ResolvingOfficerID FROM ResolvingOfficer 
+          WHERE DepartmentID = ? AND IsActive = 1 
+          ORDER BY RAND() LIMIT 1
+        `, [DepartmentID]);
+        
+        if (assigningOfficers.length > 0 && resolvingOfficers.length > 0) {
+          // Create assignment
+          await db.query(`
+            INSERT INTO ComplaintAssignment (ComplaintID, AssigningOfficerID, ResolvingOfficerID, AssignmentTimestamp)
+            VALUES (?, ?, ?, NOW())
+          `, [complaintId, assigningOfficers[0].AssigningOfficerID, resolvingOfficers[0].ResolvingOfficerID]);
+          
+          // Update complaint status
+          await db.query(`
+            UPDATE Complaint SET Status = 'ASSIGNED' WHERE ComplaintID = ?
+          `, [complaintId]);
+        }
       }
-      if (filters.department) {
-        baseQuery += ' AND c.DepartmentID = ?';
-        params.push(filters.department);
-      }
-      // Removed district/block filters
+      
+      res.json({ 
+        success: true, 
+        message: 'Complaint created and assigned successfully',
+        complaintId: complaintId 
+      });
+    } catch (error) {
+      console.error('Error creating complaint:', error);
+      res.status(500).json({ error: 'Failed to create complaint' });
+    }
+  }
 
-      baseQuery += ' ORDER BY c.ComplaintID DESC';
+  // Update complaint status
+  static async updateComplaintStatus(req, res) {
+    const { id } = req.params;
+    const { status, notes, officerId } = req.body;
+    
+    try {
+      await db.query(`
+        UPDATE Complaint 
+        SET Status = ?
+        WHERE ComplaintID = ?
+      `, [status, id]);
+      
+      // Log the status change
+      await db.query(`
+        INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription)
+        VALUES (?, ?, ?, NOW(), ?)
+      `, [id, status, officerId || 1, notes || `Status changed to ${status}`]);
+      
+      res.json({ success: true, message: 'Status updated successfully' });
+    } catch (error) {
+      console.error('Error updating complaint:', error);
+      res.status(500).json({ error: 'Failed to update complaint' });
+    }
+  }
 
-      const [complaints] = await db.query(baseQuery, params);
+  // Get complaints by person
+  static async getComplaintsByPerson(req, res) {
+    const { personId } = req.params;
+    
+    try {
+      const [complaints] = await db.query(`
+        SELECT c.*, d.DepartmentName, v.VillageName
+        FROM Complaint c
+        LEFT JOIN Department d ON c.DepartmentID = d.DepartmentID
+        LEFT JOIN Person p ON c.PersonID = p.PersonID
+        LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
+        WHERE c.PersonID = ?
+        ORDER BY c.ComplaintID DESC
+      `, [personId]);
+      
+      res.json(complaints);
+    } catch (error) {
+      console.error('Error fetching person complaints:', error);
+      res.status(500).json({ error: 'Failed to fetch complaints' });
+    }
+  }
 
-      // Get statistics
+  // Get dashboard statistics
+  static async getDashboardStats(req, res) {
+    try {
       const [stats] = await db.query(`
         SELECT 
           COUNT(*) as totalComplaints,
@@ -401,23 +162,187 @@ export class ComplaintController {
           SUM(CASE WHEN Status = 'ASSIGNED' THEN 1 ELSE 0 END) as assignedComplaints,
           SUM(CASE WHEN Status = 'IN_PROGRESS' THEN 1 ELSE 0 END) as inProgressComplaints,
           SUM(CASE WHEN Status = 'RESOLVED' THEN 1 ELSE 0 END) as resolvedComplaints,
-          SUM(CASE WHEN Status = 'REJECTED' THEN 1 ELSE 0 END) as rejectedComplaints,
-          SUM(CASE WHEN Status = 'CLOSED' THEN 1 ELSE 0 END) as closedComplaints
+          SUM(CASE WHEN Status = 'REJECTED' THEN 1 ELSE 0 END) as rejectedComplaints
+        FROM Complaint
+      `);
+      
+      res.json(stats[0]);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      res.status(500).json({ error: 'Failed to fetch statistics' });
+    }
+  }
+
+  // Assign complaint to officers
+  static async assignComplaint(req, res) {
+    const { id } = req.params;
+    const { AssigningOfficerID, ResolvingOfficerID } = req.body;
+    
+    try {
+      // Create assignment
+      await db.query(`
+        INSERT INTO ComplaintAssignment (ComplaintID, AssigningOfficerID, ResolvingOfficerID, AssignmentTimestamp)
+        VALUES (?, ?, ?, NOW())
+      `, [id, AssigningOfficerID, ResolvingOfficerID]);
+      
+      // Update complaint status
+      await db.query(`
+        UPDATE Complaint SET Status = 'ASSIGNED' WHERE ComplaintID = ?
+      `, [id]);
+      
+      res.json({ success: true, message: 'Complaint assigned successfully' });
+    } catch (error) {
+      console.error('Error assigning complaint:', error);
+      res.status(500).json({ error: 'Failed to assign complaint' });
+    }
+  }
+
+  // Get complaints by officer
+  static async getComplaintsByOfficer(req, res) {
+    const { officerId } = req.params;
+    const { role } = req.query; // 'assigning' or 'resolving'
+    
+    try {
+      let query = `
+        SELECT c.*, p.FirstName, p.LastName, p.PhoneNumber, d.DepartmentName, v.VillageName
         FROM Complaint c
         LEFT JOIN Person p ON c.PersonID = p.PersonID
+        LEFT JOIN Department d ON c.DepartmentID = d.DepartmentID
         LEFT JOIN Village v ON p.CensusVillageCode = v.CensusVillageCode
-        WHERE 1=1
-        ${userRole === 'villager' ? 'AND c.PersonID = ?' : ''}
-        ${userRole === 'resolution_officer' ? 'AND EXISTS (SELECT 1 FROM ComplaintAssignment ca WHERE ca.ComplaintID = c.ComplaintID AND ca.ResolvingOfficerID = ?)' : ''}
-        ${userRole === 'assigning_officer' ? 'AND EXISTS (SELECT 1 FROM ComplaintAssignment ca WHERE ca.ComplaintID = c.ComplaintID AND ca.AssigningOfficerID = ?)' : ''}
-      `, userRole === 'villager' || userRole === 'resolution_officer' || userRole === 'assigning_officer' ? [userId] : []);
-
-      return {
-        complaints,
-        statistics: stats[0]
-      };
+        LEFT JOIN ComplaintAssignment ca ON c.ComplaintID = ca.ComplaintID
+        WHERE `;
+      
+      if (role === 'assigning') {
+        query += `ca.AssigningOfficerID = ?`;
+      } else {
+        query += `ca.ResolvingOfficerID = ?`;
+      }
+      
+      query += ` ORDER BY c.ComplaintID DESC`;
+      
+      const [complaints] = await db.query(query, [officerId]);
+      res.json(complaints);
     } catch (error) {
-      throw error;
+      console.error('Error fetching officer complaints:', error);
+      res.status(500).json({ error: 'Failed to fetch complaints' });
+    }
+  }
+
+  // Submit feedback for resolved complaint
+  static async submitFeedback(req, res) {
+    const { complaintId, personId, rating, comments } = req.body;
+    
+    try {
+      // Check if complaint exists and is resolved
+      const [complaints] = await db.query(
+        'SELECT Status FROM Complaint WHERE ComplaintID = ?',
+        [complaintId]
+      );
+      
+      if (complaints.length === 0) {
+        return res.status(404).json({ error: 'Complaint not found' });
+      }
+      
+      if (complaints[0].Status !== 'RESOLVED') {
+        return res.status(400).json({ error: 'Complaint must be resolved before feedback' });
+      }
+      
+      // Insert feedback
+      await db.query(`
+        INSERT INTO Feedback (ComplaintID, PersonID, Rating, Comments, FeedbackTimestamp)
+        VALUES (?, ?, ?, ?, NOW())
+      `, [complaintId, personId, rating, comments || '']);
+      
+      res.json({ success: true, message: 'Feedback submitted successfully' });
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      res.status(500).json({ error: 'Failed to submit feedback' });
+    }
+  }
+
+  // Get feedback for complaint
+  static async getComplaintFeedback(req, res) {
+    const { id } = req.params;
+    
+    try {
+      const [feedback] = await db.query(`
+        SELECT f.*, p.FirstName, p.LastName
+        FROM Feedback f
+        LEFT JOIN Person p ON f.PersonID = p.PersonID
+        WHERE f.ComplaintID = ?
+        ORDER BY f.FeedbackTimestamp DESC
+      `, [id]);
+      
+      res.json(feedback);
+    } catch (error) {
+      console.error('Error fetching feedback:', error);
+      res.status(500).json({ error: 'Failed to fetch feedback' });
+    }
+  }
+
+  // Get complaint logs
+  static async getComplaintLogs(req, res) {
+    const { id } = req.params;
+    
+    try {
+      const [logs] = await db.query(`
+        SELECT cl.*, 
+               CASE 
+                 WHEN cl.OfficerID IN (SELECT AssigningOfficerID FROM AssigningOfficer) 
+                 THEN CONCAT(ao.FirstName, ' ', ao.LastName)
+                 WHEN cl.OfficerID IN (SELECT ResolvingOfficerID FROM ResolvingOfficer) 
+                 THEN CONCAT(ro.FirstName, ' ', ro.LastName)
+                 ELSE 'System'
+               END as OfficerName
+        FROM ComplaintLog cl
+        LEFT JOIN AssigningOfficer ao ON cl.OfficerID = ao.AssigningOfficerID
+        LEFT JOIN ResolvingOfficer ro ON cl.OfficerID = ro.ResolvingOfficerID
+        WHERE cl.ComplaintID = ?
+        ORDER BY cl.Timestamp DESC
+      `, [id]);
+      
+      res.json(logs);
+    } catch (error) {
+      console.error('Error fetching logs:', error);
+      res.status(500).json({ error: 'Failed to fetch logs' });
+    }
+  }
+
+  // Add complaint update
+  static async addComplaintUpdate(req, res) {
+    const { id } = req.params;
+    const { content, isPublic, createdBy } = req.body;
+    
+    try {
+      await db.query(`
+        INSERT INTO ComplaintLog (ComplaintID, Status, OfficerID, Timestamp, ActionDescription)
+        VALUES (?, 'UPDATE', ?, NOW(), ?)
+      `, [id, createdBy || 1, content]);
+      
+      res.json({ success: true, message: 'Update added successfully' });
+    } catch (error) {
+      console.error('Error adding update:', error);
+      res.status(500).json({ error: 'Failed to add update' });
+    }
+  }
+
+  // Get complaint updates
+  static async getComplaintUpdates(req, res) {
+    const { id } = req.params;
+    
+    try {
+      const [updates] = await db.query(`
+        SELECT cl.*, p.FirstName, p.LastName
+        FROM ComplaintLog cl
+        LEFT JOIN Person p ON cl.OfficerID = p.PersonID
+        WHERE cl.ComplaintID = ? AND cl.ActionDescription IS NOT NULL
+        ORDER BY cl.Timestamp DESC
+      `, [id]);
+      
+      res.json(updates);
+    } catch (error) {
+      console.error('Error fetching updates:', error);
+      res.status(500).json({ error: 'Failed to fetch updates' });
     }
   }
 }
