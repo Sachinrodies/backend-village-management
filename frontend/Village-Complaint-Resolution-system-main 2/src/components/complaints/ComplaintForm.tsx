@@ -87,9 +87,7 @@ const ComplaintForm: React.FC = () => {
     setIsSubmitting(true);
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate API call
-      
-      addComplaint({
+      await addComplaint({
         ...formData,
         attachments: [],
       });

@@ -7,9 +7,10 @@ import { generateId } from '../utils/helpers';
 interface ComplaintContextType {
   complaints: Complaint[];
   loading: boolean;
-  addComplaint: (complaint: Omit<Complaint, 'id' | 'submittedAt' | 'status' | 'updates'>) => void;
+  addComplaint: (complaint: Omit<Complaint, 'id' | 'submittedAt' | 'status' | 'updates'>) => Promise<void>;
   updateComplaintStatus: (id: string, status: ComplaintStatus, message?: string) => void;
   assignComplaint: (complaintId: string, officerId: string, departmentId: string) => void;
+  assignToResolvingOfficer: (complaintId: string, resolvingOfficerId: string) => Promise<void>;
   reassignComplaint: (complaintId: string, newOfficerId: string) => void;
   addComplaintUpdate: (complaintId: string, content: string, isPublic: boolean) => void;
   getUserComplaints: () => Complaint[];
@@ -72,19 +73,79 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
     fetchComplaints();
   }, []);
   
-  const addComplaint = (complaintData: Omit<Complaint, 'id' | 'submittedAt' | 'status' | 'updates'>) => {
+  const addComplaint = async (
+    complaintData: Omit<Complaint, 'id' | 'submittedAt' | 'status' | 'updates'>
+  ): Promise<void> => {
     if (!user) return;
-    
-    const newComplaint: Complaint = {
-      ...complaintData,
-      id: generateId(),
-      status: 'NEW',
-      submittedAt: new Date().toISOString(),
-      submittedBy: user.id,
-      updates: [],
-    };
-    
-    setComplaints([...complaints, newComplaint]);
+
+    try {
+      // Resolve DepartmentID from category → department name mapping
+      const categoryToDepartmentName: Record<string, string> = {
+        infrastructure: 'Public Works',
+        sanitation: 'Sanitation',
+        electricity: 'Electricity',
+        water: 'Water Supply',
+        education: 'Education',
+        healthcare: 'Health',
+        other: 'General Administration'
+      };
+
+      const targetDepartmentName = categoryToDepartmentName[(complaintData as any).category] || 'General Administration';
+
+      let departmentId: number | undefined = undefined;
+      try {
+        const depRes = await fetch('/api/departments', {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
+        });
+        if (depRes.ok) {
+          const deps = await depRes.json();
+          const match = deps.find((d: any) => (d.DepartmentName || '').toLowerCase() === targetDepartmentName.toLowerCase());
+          if (match) departmentId = Number(match.DepartmentID);
+        }
+      } catch {}
+
+      const response = await fetch('/api/complaints', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          PersonID: user.id,
+          // Combine title and description so lists show meaningful text
+          Description: complaintData.title
+            ? `${complaintData.title}: ${complaintData.description}`
+            : complaintData.description,
+          PriorityLevel: (complaintData.priority || 'medium').toUpperCase(),
+          LocationDescription: complaintData.location,
+          DepartmentID: departmentId // if undefined, backend will fallback to default
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create complaint');
+      }
+
+      const result = await response.json();
+      const createdId = (result.complaintId ?? result.id ?? generateId()).toString();
+
+      const newComplaint: Complaint = {
+        ...complaintData,
+        id: createdId,
+        status: 'NEW',
+        submittedAt: new Date().toISOString(),
+        submittedBy: user.id,
+        // Align with backend mapping which uses Description for both title/description
+        title: complaintData.title || complaintData.description,
+        description: complaintData.description || complaintData.title || '',
+        department: targetDepartmentName,
+        updates: [],
+      };
+
+      setComplaints(prev => [...prev, newComplaint]);
+    } catch (e) {
+      alert('Failed to submit complaint. Please try again.');
+    }
   };
   
   const updateComplaintStatus = async (id: string, status: ComplaintStatus, message?: string) => {
@@ -187,6 +248,40 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
         return complaint;
       })
     );
+  };
+
+  const assignToResolvingOfficer = async (complaintId: string, resolvingOfficerId: string) => {
+    if (!user) return;
+    try {
+      const response = await fetch(`/api/complaints/${complaintId}/assign`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          AssigningOfficerID: user.id,
+          ResolvingOfficerID: resolvingOfficerId
+        })
+      });
+      if (!response.ok) {
+        throw new Error('Failed to assign complaint');
+      }
+      setComplaints(prevComplaints => prevComplaints.map(c => {
+        if (c.id === complaintId) {
+          return {
+            ...c,
+            status: 'ASSIGNED',
+            assignedTo: resolvingOfficerId,
+            assignedBy: user.id,
+            assignedAt: new Date().toISOString()
+          };
+        }
+        return c;
+      }));
+    } catch (e) {
+      alert('Failed to assign complaint. Please try again.');
+    }
   };
   
   const addComplaintUpdate = async (complaintId: string, content: string, isPublic: boolean) => {
@@ -312,6 +407,7 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
         addComplaint, 
         updateComplaintStatus, 
         assignComplaint, 
+        assignToResolvingOfficer,
         reassignComplaint, 
         addComplaintUpdate, 
         getUserComplaints, 
