@@ -57,7 +57,7 @@ const ResolutionOfficerDashboard: React.FC = () => {
   console.log('User ID:', user?.id);
   
   // Get counts
-  const assignedCount = assignedComplaints.filter(c => c.status === 'ASSIGNED' || c.status === 'PENDING').length;
+  const assignedCount = assignedComplaints.filter(c => c.status === 'ASSIGNED' || c.status === 'NEW').length;
   const inProgressCount = assignedComplaints.filter(c => c.status === 'IN_PROGRESS').length;
   const resolvedCount = assignedComplaints.filter(c => c.status === 'RESOLVED').length;
   
@@ -152,7 +152,7 @@ const ResolutionOfficerDashboard: React.FC = () => {
             >
               <option value="all">All Status</option>
               <option value="ASSIGNED">Assigned</option>
-              <option value="PENDING">Pending</option>
+              <option value="NEW">Pending</option>
               <option value="IN_PROGRESS">In Progress</option>
               <option value="RESOLVED">Resolved</option>
             </select>
@@ -193,7 +193,7 @@ const ResolutionOfficerDashboard: React.FC = () => {
                     </p>
                   </div>
                   <Badge variant={
-                    complaint.status === 'ASSIGNED' || complaint.status === 'PENDING' ? 'info' :
+                    complaint.status === 'ASSIGNED' || complaint.status === 'NEW' ? 'info' :
                     complaint.status === 'IN_PROGRESS' ? 'primary' :
                     'success'
                   }>
@@ -210,13 +210,13 @@ const ResolutionOfficerDashboard: React.FC = () => {
                   </div>
                   
                   <div className="flex flex-wrap items-center gap-2">
-                    {(complaint.status === 'ASSIGNED' || complaint.status === 'PENDING') && (
+                    {(complaint.status === 'ASSIGNED' || complaint.status === 'NEW') && (
                       <Button
                         size="sm"
                         className="bg-blue-600 hover:bg-blue-700 text-white font-semibold"
                         onClick={() => handleStatusUpdate(complaint.id, 'IN_PROGRESS')}
                       >
-                        🚀 Start Resolution
+                        Start Resolution
                       </Button>
                     )}
                     

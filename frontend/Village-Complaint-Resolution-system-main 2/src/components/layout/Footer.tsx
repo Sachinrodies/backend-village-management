@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Heart } from 'lucide-react';
+import logoUrl from '../../assets/e-samadhan.svg';
 
 const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -11,7 +12,7 @@ const Footer: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="md:col-span-1">
             <Link to="/" className="inline-block mb-4">
-              <span className="text-primary-600 font-bold text-xl">E Samadhan</span>
+              <img src={logoUrl} alt="E Samadhan" className="h-10 w-auto" />
             </Link>
             <p className="text-secondary-800 text-sm">
               Empowering villages through digital complaint resolution and community engagement.

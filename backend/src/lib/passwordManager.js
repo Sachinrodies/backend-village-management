@@ -14,7 +14,7 @@ export const setOfficerPassword = async (officerId, password) => {
       const data = await fs.readFile(PASSWORD_FILE, 'utf8');
       passwords = JSON.parse(data);
     } catch (error) {
-      // File doesn't exist, create empty object
+    
     }
     
     passwords[officerId] = hashedPassword;
@@ -50,5 +50,16 @@ export const hasOfficerPassword = async (officerId) => {
     return !!passwords[officerId];
   } catch (error) {
     return false;
+  }
+};
+
+// Return list of officer IDs (as strings) that have passwords set
+export const getAllOfficersWithPasswords = async () => {
+  try {
+    const data = await fs.readFile(PASSWORD_FILE, 'utf8');
+    const passwords = JSON.parse(data);
+    return Object.keys(passwords);
+  } catch (error) {
+    return [];
   }
 };

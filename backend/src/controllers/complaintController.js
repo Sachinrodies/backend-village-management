@@ -56,7 +56,7 @@ export class ComplaintController {
     const { PersonID, Description, PriorityLevel, LocationDescription, DepartmentID } = req.body;
     
     try {
-      // Create complaint
+    
       const [result] = await db.query(`
         INSERT INTO Complaint (PersonID, Description, PriorityLevel, LocationDescription, Status, Timestamp, DepartmentID)
         VALUES (?, ?, ?, ?, 'NEW', NOW(), ?)
@@ -64,9 +64,9 @@ export class ComplaintController {
       
       const complaintId = result.insertId;
       
-      // Auto-assign to officers if department specified
+   
       if (DepartmentID) {
-        // Find assigning officer for this department
+       
         const [assigningOfficers] = await db.query(`
           SELECT AssigningOfficerID FROM AssigningOfficer 
           WHERE DepartmentID = ? AND IsActive = 1 
@@ -233,7 +233,7 @@ export class ComplaintController {
     const { complaintId, personId, rating, comments } = req.body;
     
     try {
-      // Check if complaint exists and is resolved
+ 
       const [complaints] = await db.query(
         'SELECT Status FROM Complaint WHERE ComplaintID = ?',
         [complaintId]

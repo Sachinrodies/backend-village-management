@@ -25,7 +25,7 @@ interface ComplaintContextType {
 const ComplaintContext = createContext<ComplaintContextType | undefined>(undefined);
 
 export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [assignments, setAssignments] = useLocalStorage<Assignment[]>('assignments', []);
   const [loading, setLoading] = useState(true);
@@ -35,7 +35,9 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
     const fetchComplaints = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/complaints');
+        const response = await fetch('/api/complaints', {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
+        });
         
         if (response.ok) {
           const data = await response.json();
@@ -45,7 +47,7 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
             id: complaint.ComplaintID.toString(),
             title: complaint.Description,
             description: complaint.Description,
-            status: complaint.Status.toUpperCase(),
+            status: complaint.Status.toUpperCase() as ComplaintStatus,
             priority: complaint.PriorityLevel?.toLowerCase() || 'medium',
             location: complaint.LocationDescription || '',
             submittedAt: complaint.Timestamp,
@@ -76,7 +78,7 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
     const newComplaint: Complaint = {
       ...complaintData,
       id: generateId(),
-      status: 'pending',
+      status: 'NEW',
       submittedAt: new Date().toISOString(),
       submittedBy: user.id,
       updates: [],
@@ -94,6 +96,7 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           status: status,
@@ -126,7 +129,7 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
             return {
               ...complaint,
               status,
-              ...(status === 'resolved' && { resolvedAt: new Date().toISOString() }),
+              ...(status === 'RESOLVED' && { resolvedAt: new Date().toISOString() }),
               updates
             };
           }
@@ -157,7 +160,7 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
         if (complaint.id === complaintId) {
           return {
             ...complaint,
-            status: 'assigned',
+            status: 'ASSIGNED',
             department: departmentId,
             assignedTo: officerId,
             assignedBy: user.id,
@@ -195,6 +198,7 @@ export const ComplaintProvider: React.FC<{ children: ReactNode }> = ({ children 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           content,

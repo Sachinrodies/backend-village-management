@@ -33,5 +33,7 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-});
+if (process.env.SKIP_LISTEN !== '1') {
+  app.listen(PORT, () => {
+  });
+}

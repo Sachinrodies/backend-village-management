@@ -37,18 +37,16 @@ const DepartmentHeadDashboard: React.FC = () => {
     return null;
   }
   
-  // Get department complaints
+  // Get department complaints (relaxed: backend mapping doesn't include district/block; department is a name)
   const departmentComplaints = complaints.filter(
-    c => c.department === user.department && 
-        c.district === user.district && 
-        c.block === user.block
+    c => !user.department || !c.department || c.department === user.department
   );
   
-  // Get counts
-  const pendingCount = departmentComplaints.filter(c => c.status === 'pending').length;
-  const assignedCount = departmentComplaints.filter(c => c.status === 'assigned').length;
-  const inProgressCount = departmentComplaints.filter(c => c.status === 'in-progress').length;
-  const resolvedCount = departmentComplaints.filter(c => c.status === 'resolved').length;
+  // Get counts (normalize to backend enums)
+  const pendingCount = departmentComplaints.filter(c => c.status === 'NEW').length;
+  const assignedCount = departmentComplaints.filter(c => c.status === 'ASSIGNED').length;
+  const inProgressCount = departmentComplaints.filter(c => c.status === 'IN_PROGRESS').length;
+  const resolvedCount = departmentComplaints.filter(c => c.status === 'RESOLVED').length;
   
   // Get resolution officers
   const resolutionOfficers = getMockDepartments()
@@ -142,10 +140,10 @@ const DepartmentHeadDashboard: React.FC = () => {
                 className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
               >
                 <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="assigned">Assigned</option>
-                <option value="in-progress">In Progress</option>
-                <option value="resolved">Resolved</option>
+                <option value="NEW">Pending</option>
+                <option value="ASSIGNED">Assigned</option>
+                <option value="IN_PROGRESS">In Progress</option>
+                <option value="RESOLVED">Resolved</option>
               </select>
             </div>
             
@@ -184,9 +182,9 @@ const DepartmentHeadDashboard: React.FC = () => {
                     </p>
                   </div>
                   <Badge variant={
-                    complaint.status === 'pending' ? 'warning' :
-                    complaint.status === 'assigned' ? 'info' :
-                    complaint.status === 'in-progress' ? 'primary' :
+                    complaint.status === 'NEW' ? 'warning' :
+                    complaint.status === 'ASSIGNED' ? 'info' :
+                    complaint.status === 'IN_PROGRESS' ? 'primary' :
                     'success'
                   }>
                     {complaint.status}
@@ -201,7 +199,7 @@ const DepartmentHeadDashboard: React.FC = () => {
                     <span>Location: {complaint.location}</span>
                   </div>
                   
-                  {complaint.status === 'pending' && (
+                  {complaint.status === 'NEW' && (
                     <div className="flex items-center space-x-2">
                       <select
                         className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"

@@ -4,6 +4,7 @@ import { Menu, X, Home, FileText, Bell, User, LogOut, FileQuestion } from 'lucid
 import { useAuth } from '../../context/AuthContext';
 import Button from '../ui/Button';
 import { motion } from 'framer-motion';
+import logoUrl from '../../assets/e-samadhan.svg';
 
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -40,7 +41,7 @@ const Header: React.FC = () => {
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
-            <span className="text-primary-600 font-bold text-xl">E Samadhan</span>
+            <img src={logoUrl} alt="E Samadhan" className="h-10 w-auto" />
           </Link>
           
           {/* Desktop Navigation */}

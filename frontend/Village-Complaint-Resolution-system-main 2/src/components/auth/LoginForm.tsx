@@ -64,7 +64,8 @@ const LoginForm: React.FC = () => {
       }
       setIsSuccess(true);
       setTimeout(() => {
-        login(data.user);
+        // Save user and token for authenticated API calls
+        login(data.user, data.token);
         const role = data.user?.role;
         if (role === 'assigning_officer' || role === 'department_head') {
           navigate('/department-head');

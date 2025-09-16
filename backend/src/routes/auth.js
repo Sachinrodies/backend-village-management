@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../index.js';
+import { verifyOfficerPassword } from '../lib/passwordManager.js';
 
 export const authRouter = Router();
 
@@ -168,7 +169,13 @@ authRouter.post('/officer/login', async (req, res) => {
     // Check AssigningOfficer
     if (assigningOfficers.length > 0) {
       const officer = assigningOfficers[0];
-      const isPasswordValid = await bcrypt.compare(password, officer.Password);
+      let isPasswordValid = false;
+      if (officer.Password) {
+        isPasswordValid = await bcrypt.compare(password, officer.Password);
+      } else {
+        // Fallback to JSON-based password store by officer ID
+        isPasswordValid = await verifyOfficerPassword(officer.AssigningOfficerID?.toString(), password);
+      }
       
       if (isPasswordValid) {
         const user = {
@@ -187,7 +194,13 @@ authRouter.post('/officer/login', async (req, res) => {
     // Check ResolvingOfficer
     if (resolvingOfficers.length > 0) {
       const officer = resolvingOfficers[0];
-      const isPasswordValid = await bcrypt.compare(password, officer.Password);
+      let isPasswordValid = false;
+      if (officer.Password) {
+        isPasswordValid = await bcrypt.compare(password, officer.Password);
+      } else {
+        // Fallback to JSON-based password store by officer ID
+        isPasswordValid = await verifyOfficerPassword(officer.ResolvingOfficerID?.toString(), password);
+      }
       
       if (isPasswordValid) {
         const user = {

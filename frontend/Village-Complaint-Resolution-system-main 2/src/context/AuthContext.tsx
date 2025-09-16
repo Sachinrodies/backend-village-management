@@ -5,7 +5,8 @@ import { canManageComplaint, canAssignComplaints, canViewDistrictData, canViewBl
 
 interface AuthContextType {
   user: User | null;
-  login: (user: User) => void;
+  token: string | null;
+  login: (user: User, token: string) => void;
   logout: () => void;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -23,13 +24,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useLocalStorage<User | null>('user', null);
+  const [token, setToken] = useLocalStorage<string | null>('token', null);
   
-  const login = (userData: User) => {
+  const login = (userData: User, jwtToken: string) => {
     setUser(userData);
+    setToken(jwtToken);
   };
   
   const logout = () => {
     setUser(null);
+    setToken(null);
   };
   
   const isAuthenticated = !!user;
@@ -42,9 +46,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <AuthContext.Provider 
       value={{ 
-        user, 
-        login, 
-        logout, 
+        user,
+        token,
+        login,
+        logout,
         isAuthenticated,
         isAdmin,
         isDistrictOfficer,
