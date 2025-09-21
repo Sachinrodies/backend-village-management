@@ -30,12 +30,91 @@ export async function getDepartmentIdByName(departmentName) {
 
 export async function classifyDepartmentId({ description, providedDepartmentId }) {
   const normalized = (description || '').toLowerCase();
-  const mdmPattern = /(mid\s*-?\s*day\s*meal|mdm)/i;
-  if (mdmPattern.test(normalized)) {
-    const educationId = await getDepartmentIdByName('Education');
-    if (educationId) return educationId;
+  
+  // If department is already provided, use it
+  if (providedDepartmentId) {
+    return providedDepartmentId;
   }
-  return providedDepartmentId || 1;
+  
+  // Define department classification patterns
+  const departmentPatterns = {
+    // Education Department
+    education: {
+      patterns: [
+        /(mid\s*-?\s*day\s*meal|mdm)/i,
+        /(school|education|teacher|student|classroom|library|book)/i,
+        /(exam|admission|scholarship|tuition)/i
+      ],
+      departmentName: 'Education'
+    },
+    
+    // Health Department
+    health: {
+      patterns: [
+        /(health|hospital|clinic|doctor|nurse|medicine|medical|pharmacy)/i,
+        /(ambulance|emergency|treatment|disease|illness|sick)/i,
+        /(vaccination|immunization|maternal|child\s*health)/i
+      ],
+      departmentName: 'Health'
+    },
+    
+    // Electricity Department
+    electricity: {
+      patterns: [
+        /(electricity|electric|power|transformer|wire|cable|bulb|light)/i,
+        /(voltage|current|meter|billing|connection|disconnection)/i,
+        /(street\s*light|pole|electrical)/i
+      ],
+      departmentName: 'Electricity'
+    },
+    
+    // Water Department
+    water: {
+      patterns: [
+        /(water|supply|pipeline|tap|handpump|well|borewell)/i,
+        /(drinking|potable|purification|tank|reservoir)/i,
+        /(irrigation|canal|drainage|flood)/i
+      ],
+      departmentName: 'Water Supply'
+    },
+    
+    // Public Works Department
+    publicWorks: {
+      patterns: [
+        /(road|bridge|construction|repair|pothole|street)/i,
+        /(building|infrastructure|drain|sewer|gutter)/i,
+        /(maintenance|renovation|development)/i
+      ],
+      departmentName: 'Public Works'
+    },
+    
+    // Sanitation Department
+    sanitation: {
+      patterns: [
+        /(garbage|waste|trash|cleanliness|sweeping)/i,
+        /(toilet|latrine|sewerage|drainage)/i,
+        /(hygiene|sanitation|cleaning)/i
+      ],
+      departmentName: 'Sanitation'
+    }
+  };
+  
+  // Check each department pattern
+  for (const [key, config] of Object.entries(departmentPatterns)) {
+    for (const pattern of config.patterns) {
+      if (pattern.test(normalized)) {
+        const departmentId = await getDepartmentIdByName(config.departmentName);
+        if (departmentId) {
+          console.log(`Complaint classified as ${config.departmentName} based on pattern: ${pattern}`);
+          return departmentId;
+        }
+      }
+    }
+  }
+  
+  // If no pattern matches, return default department (General Administration)
+  console.log('No specific department pattern matched, using default department');
+  return 1; // Default to General Administration
 }
 
 
